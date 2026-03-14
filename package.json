@@ -1,0 +1,22 @@
+{
+  "name": "localtalk",
+  "version": "1.0.0",
+  "description": "Premium LAN chat application — zero-friction, real-time, ephemeral messaging",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": ["chat", "lan", "real-time", "websocket", "local-network"],
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
