@@ -448,6 +448,39 @@ a { color: inherit; text-decoration: none; }
   50% { opacity: 0.5; transform: scale(0.8); }
 }
 
+.header-info-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.room-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.65rem;
+  font-weight: 600;
+  font-family: 'Courier New', monospace;
+  padding: 2px 8px;
+  background: var(--accent-glow);
+  color: var(--accent);
+  border-radius: var(--radius-full);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+
+.leave-btn {
+  color: var(--text-muted);
+  transition: var(--transition-fast);
+}
+
+.leave-btn:hover, .leave-btn:active {
+  background: rgba(255, 107, 107, 0.1) !important;
+  color: var(--danger) !important;
+}
+
 .header-actions {
   display: flex;
   align-items: center;

@@ -7,7 +7,7 @@
 
   // ─── State ─────────────────────────────────────────────────
   let socket = null;
-  let currentUser = { name: '', color: '' };
+  let currentUser = { name: '', color: '', room: '' };
   let typingTimeout = null;
   let isTyping = false;
 
@@ -23,6 +23,8 @@
     joinForm: $('#join-form'),
     nameInput: $('#name-input'),
     nameCharCount: $('#name-char-count'),
+    roomInput: $('#room-input'),
+    roomCharCount: $('#room-char-count'),
     nameError: $('#name-error'),
     joinBtn: $('#join-btn'),
     serverUrlText: $('#server-url-text'),
@@ -30,7 +32,9 @@
 
     // Chat header
     onlineCount: $('#online-count'),
+    roomBadge: $('#room-badge'),
     shareBtn: $('#share-btn'),
+    leaveBtn: $('#leave-btn'),
     sidebarToggle: $('#sidebar-toggle'),
 
     // Sidebar
@@ -61,26 +65,20 @@
   }
 
   // ─── Mobile Viewport Fix ───────────────────────────────────
-  // Prevents page from shifting when virtual keyboard opens
   function setupMobileViewport() {
     if (!window.visualViewport) return;
 
     const chatScreen = dom.chatScreen;
 
     window.visualViewport.addEventListener('resize', () => {
-      // When keyboard opens, the visualViewport height shrinks
-      // We set the chat screen height to match so it doesn't overflow
       chatScreen.style.height = window.visualViewport.height + 'px';
-      // Prevent any scrolling of the body
       window.scrollTo(0, 0);
     });
 
     window.visualViewport.addEventListener('scroll', () => {
-      // Prevent any offset caused by browser trying to scroll
       window.scrollTo(0, 0);
     });
 
-    // Also handle message input focus/blur for iOS
     dom.messageInput.addEventListener('focus', () => {
       setTimeout(() => {
         window.scrollTo(0, 0);
@@ -117,6 +115,11 @@
       dom.nameCharCount.textContent = `${len}/24`;
       dom.nameError.textContent = '';
     });
+    dom.roomInput.addEventListener('input', () => {
+      const len = dom.roomInput.value.length;
+      dom.roomCharCount.textContent = `${len}/50`;
+      dom.nameError.textContent = '';
+    });
 
     // Server URL copy
     dom.serverUrlBox.addEventListener('click', copyServerUrl);
@@ -132,7 +135,8 @@
     dom.sendBtn.addEventListener('click', sendMessage);
 
     // Header actions
-    dom.shareBtn.addEventListener('click', copyServerUrl);
+    dom.shareBtn.addEventListener('click', shareRoomInfo);
+    dom.leaveBtn.addEventListener('click', handleLeave);
     dom.sidebarToggle.addEventListener('click', toggleSidebar);
     dom.sidebarClose.addEventListener('click', closeSidebar);
 
@@ -146,9 +150,17 @@
   function handleJoin(e) {
     e.preventDefault();
     const name = dom.nameInput.value.trim();
+    const room = dom.roomInput.value.trim();
+
     if (!name) {
       dom.nameError.textContent = 'Please enter a display name.';
       dom.nameInput.focus();
+      return;
+    }
+
+    if (!room) {
+      dom.nameError.textContent = 'Please enter a room code.';
+      dom.roomInput.focus();
       return;
     }
 
@@ -159,15 +171,16 @@
     socket = io();
 
     socket.on('connect', () => {
-      socket.emit('user:join', name, (response) => {
+      socket.emit('user:join', { name, room }, (response) => {
         if (response.success) {
           currentUser.name = response.name;
           currentUser.color = response.color;
+          currentUser.room = response.room;
           switchToChat();
         } else {
           dom.nameError.textContent = response.error;
           dom.joinBtn.disabled = false;
-          dom.joinBtn.querySelector('span').textContent = 'Join Chat';
+          dom.joinBtn.querySelector('span').textContent = 'Join Room';
         }
       });
     });
@@ -175,14 +188,14 @@
     socket.on('connect_error', () => {
       dom.nameError.textContent = 'Connection failed. Please try again.';
       dom.joinBtn.disabled = false;
-      dom.joinBtn.querySelector('span').textContent = 'Join Chat';
+      dom.joinBtn.querySelector('span').textContent = 'Join Room';
     });
 
     // Socket event listeners
     socket.on('error:duplicate_name', (msg) => {
       dom.nameError.textContent = msg;
       dom.joinBtn.disabled = false;
-      dom.joinBtn.querySelector('span').textContent = 'Join Chat';
+      dom.joinBtn.querySelector('span').textContent = 'Join Room';
       socket.disconnect();
       socket = null;
     });
@@ -190,7 +203,15 @@
     socket.on('error:invalid_name', (msg) => {
       dom.nameError.textContent = msg;
       dom.joinBtn.disabled = false;
-      dom.joinBtn.querySelector('span').textContent = 'Join Chat';
+      dom.joinBtn.querySelector('span').textContent = 'Join Room';
+      socket.disconnect();
+      socket = null;
+    });
+
+    socket.on('error:invalid_room', (msg) => {
+      dom.nameError.textContent = msg;
+      dom.joinBtn.disabled = false;
+      dom.joinBtn.querySelector('span').textContent = 'Join Room';
       socket.disconnect();
       socket = null;
     });
@@ -218,8 +239,30 @@
     });
   }
 
+  // ─── Leave Flow ────────────────────────────────────────────
+  function handleLeave() {
+    if (!socket) return;
+
+    // Stop typing if active
+    if (isTyping) {
+      isTyping = false;
+      socket.emit('user:typing', false);
+    }
+    if (typingTimeout) clearTimeout(typingTimeout);
+
+    socket.emit('user:leave', () => {
+      socket.disconnect();
+      socket = null;
+      currentUser = { name: '', color: '', room: '' };
+      switchToLanding();
+    });
+  }
+
   // ─── Screen Transition ─────────────────────────────────────
   function switchToChat() {
+    // Set room badge
+    dom.roomBadge.textContent = currentUser.room;
+
     dom.landingScreen.classList.add('screen-exit');
     setTimeout(() => {
       dom.landingScreen.classList.remove('active', 'screen-exit');
@@ -227,11 +270,33 @@
       dom.messageInput.focus();
 
       // Add mobile sidebar overlay
-      const overlay = document.createElement('div');
-      overlay.className = 'sidebar-overlay';
-      overlay.id = 'sidebar-overlay';
-      overlay.addEventListener('click', closeSidebar);
-      document.body.appendChild(overlay);
+      if (!$('#sidebar-overlay')) {
+        const overlay = document.createElement('div');
+        overlay.className = 'sidebar-overlay';
+        overlay.id = 'sidebar-overlay';
+        overlay.addEventListener('click', closeSidebar);
+        document.body.appendChild(overlay);
+      }
+    }, 300);
+  }
+
+  function switchToLanding() {
+    // Clear messages
+    dom.messagesContainer.innerHTML = '';
+    dom.typingIndicator.innerHTML = '';
+    typingUsers.clear();
+
+    // Reset form
+    dom.joinBtn.disabled = false;
+    dom.joinBtn.querySelector('span').textContent = 'Join Room';
+    dom.nameError.textContent = '';
+
+    // Transition
+    dom.chatScreen.classList.add('screen-exit');
+    setTimeout(() => {
+      dom.chatScreen.classList.remove('active', 'screen-exit');
+      dom.landingScreen.classList.add('active', 'screen-enter');
+      dom.nameInput.focus();
     }, 300);
   }
 
@@ -402,21 +467,42 @@
     if (overlay) overlay.classList.remove('show');
   }
 
+  // ─── Share Room Info ───────────────────────────────────────
+  async function shareRoomInfo() {
+    const shareText = `Join my ApniBaat room!\nRoom Code: ${currentUser.room}\nLink: ${window.location.origin}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'ApniBaat Room', text: shareText });
+      } else {
+        await navigator.clipboard.writeText(shareText);
+        showToast('✓ Room info copied to clipboard!');
+      }
+    } catch {
+      // Fallback
+      const input = document.createElement('input');
+      input.value = shareText;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      input.remove();
+      showToast('✓ Room info copied to clipboard!');
+    }
+  }
+
   // ─── Copy URL ──────────────────────────────────────────────
   async function copyServerUrl() {
     const url = dom.serverUrlText.textContent;
     try {
       await navigator.clipboard.writeText(url);
-      showToast('✓ Room link copied to clipboard!');
+      showToast('✓ Link copied to clipboard!');
     } catch {
-      // Fallback
       const input = document.createElement('input');
       input.value = url;
       document.body.appendChild(input);
       input.select();
       document.execCommand('copy');
       input.remove();
-      showToast('✓ Room link copied to clipboard!');
+      showToast('✓ Link copied to clipboard!');
     }
   }
 

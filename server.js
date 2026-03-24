@@ -13,8 +13,8 @@ const io = new Server(server, {
 });
 
 // ─── In-Memory State ───────────────────────────────────────────
-const activeUsers = new Map();   // socketId → { name, color }
-const messages = [];             // { id, name, text, timestamp, color, type }
+const activeUsers = new Map();       // socketId → { name, color, room }
+const roomMessages = new Map();      // room → [{ id, name, text, timestamp, color, type }]
 const MAX_MESSAGES = 500;
 
 // ─── User Color Pool ───────────────────────────────────────────
@@ -34,19 +34,35 @@ function getNextColor() {
 }
 
 // ─── Helpers ───────────────────────────────────────────────────
-function getOnlineUsers() {
-  return Array.from(activeUsers.values()).map(u => ({
-    name: u.name,
-    color: u.color,
-  }));
+function getOnlineUsers(room) {
+  const users = [];
+  for (const [, user] of activeUsers) {
+    if (user.room === room) {
+      users.push({ name: user.name, color: user.color });
+    }
+  }
+  return users;
 }
 
-function isNameTaken(name) {
+function isNameTaken(name, room) {
   const lower = name.toLowerCase().trim();
   for (const user of activeUsers.values()) {
-    if (user.name.toLowerCase().trim() === lower) return true;
+    if (user.room === room && user.name.toLowerCase().trim() === lower) return true;
   }
   return false;
+}
+
+function getRoomMessages(room) {
+  if (!roomMessages.has(room)) {
+    roomMessages.set(room, []);
+  }
+  return roomMessages.get(room);
+}
+
+function addRoomMessage(room, msg) {
+  const msgs = getRoomMessages(room);
+  msgs.push(msg);
+  if (msgs.length > MAX_MESSAGES) msgs.shift();
 }
 
 function getLanIP() {
@@ -81,8 +97,9 @@ io.on('connection', (socket) => {
   console.log(`🔌 Socket connected: ${socket.id}`);
 
   // ── Join ──
-  socket.on('user:join', (displayName, callback) => {
-    const name = (displayName || '').trim();
+  socket.on('user:join', (data, callback) => {
+    const name = (data.name || '').trim();
+    const room = (data.room || '').trim();
 
     if (!name || name.length < 1 || name.length > 24) {
       socket.emit('error:invalid_name', 'Name must be 1–24 characters.');
@@ -90,14 +107,23 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (isNameTaken(name)) {
-      socket.emit('error:duplicate_name', `"${name}" is already taken. Choose another.`);
-      if (callback) callback({ success: false, error: `"${name}" is already taken.` });
+    if (!room || room.length < 1 || room.length > 50) {
+      socket.emit('error:invalid_room', 'Room code must be 1–50 characters.');
+      if (callback) callback({ success: false, error: 'Room code must be 1–50 characters.' });
+      return;
+    }
+
+    if (isNameTaken(name, room)) {
+      socket.emit('error:duplicate_name', `"${name}" is already taken in this room. Choose another.`);
+      if (callback) callback({ success: false, error: `"${name}" is already taken in this room.` });
       return;
     }
 
     const color = getNextColor();
-    activeUsers.set(socket.id, { name, color });
+    activeUsers.set(socket.id, { name, color, room });
+
+    // Join the Socket.IO room
+    socket.join(room);
 
     // System message
     const joinMsg = {
@@ -106,20 +132,19 @@ io.on('connection', (socket) => {
       text: `${name} joined the chat`,
       timestamp: new Date().toISOString(),
     };
-    messages.push(joinMsg);
-    if (messages.length > MAX_MESSAGES) messages.shift();
+    addRoomMessage(room, joinMsg);
 
     // Send existing messages to the joining user
-    socket.emit('message:history', messages);
+    socket.emit('message:history', getRoomMessages(room));
 
-    // Broadcast the join system message to everyone else
-    socket.broadcast.emit('message:receive', joinMsg);
+    // Broadcast the join system message to everyone else in the room
+    socket.to(room).emit('message:receive', joinMsg);
 
-    // Update online users for everyone
-    io.emit('users:update', getOnlineUsers());
+    // Update online users for everyone in the room
+    io.to(room).emit('users:update', getOnlineUsers(room));
 
-    console.log(`✅ ${name} joined (${socket.id})`);
-    if (callback) callback({ success: true, name, color });
+    console.log(`✅ ${name} joined room "${room}" (${socket.id})`);
+    if (callback) callback({ success: true, name, color, room });
   });
 
   // ── Send Message ──
@@ -127,7 +152,7 @@ io.on('connection', (socket) => {
     const user = activeUsers.get(socket.id);
     if (!user) return;
 
-    const trimmed = (text || '').trim().slice(0, 500); // 500 char limit
+    const trimmed = (text || '').trim().slice(0, 500);
     if (!trimmed) return;
 
     const msg = {
@@ -138,19 +163,43 @@ io.on('connection', (socket) => {
       text: trimmed,
       timestamp: new Date().toISOString(),
     };
-    messages.push(msg);
-    if (messages.length > MAX_MESSAGES) messages.shift();
+    addRoomMessage(user.room, msg);
 
-    io.emit('message:receive', msg);
+    io.to(user.room).emit('message:receive', msg);
   });
-
-  // (Clear chat is now client-side only — each user clears their own view)
 
   // ── Typing Indicator ──
   socket.on('user:typing', (isTyping) => {
     const user = activeUsers.get(socket.id);
     if (!user) return;
-    socket.broadcast.emit('user:typing', { name: user.name, isTyping });
+    socket.to(user.room).emit('user:typing', { name: user.name, isTyping });
+  });
+
+  // ── Leave Room (without disconnecting) ──
+  socket.on('user:leave', (callback) => {
+    const user = activeUsers.get(socket.id);
+    if (!user) {
+      if (callback) callback({ success: true });
+      return;
+    }
+
+    const { name, room } = user;
+    activeUsers.delete(socket.id);
+    socket.leave(room);
+
+    const leaveMsg = {
+      id: Date.now() + '-' + socket.id,
+      type: 'system',
+      text: `${name} left the chat`,
+      timestamp: new Date().toISOString(),
+    };
+    addRoomMessage(room, leaveMsg);
+
+    io.to(room).emit('message:receive', leaveMsg);
+    io.to(room).emit('users:update', getOnlineUsers(room));
+
+    console.log(`👋 ${name} left room "${room}" (${socket.id})`);
+    if (callback) callback({ success: true });
   });
 
   // ── Disconnect ──
@@ -158,21 +207,21 @@ io.on('connection', (socket) => {
     const user = activeUsers.get(socket.id);
     if (!user) return;
 
+    const { name, room } = user;
     activeUsers.delete(socket.id);
 
     const leaveMsg = {
       id: Date.now() + '-' + socket.id,
       type: 'system',
-      text: `${user.name} left the chat`,
+      text: `${name} left the chat`,
       timestamp: new Date().toISOString(),
     };
-    messages.push(leaveMsg);
-    if (messages.length > MAX_MESSAGES) messages.shift();
+    addRoomMessage(room, leaveMsg);
 
-    io.emit('message:receive', leaveMsg);
-    io.emit('users:update', getOnlineUsers());
+    io.to(room).emit('message:receive', leaveMsg);
+    io.to(room).emit('users:update', getOnlineUsers(room));
 
-    console.log(`❌ ${user.name} disconnected (${socket.id})`);
+    console.log(`❌ ${name} disconnected from room "${room}" (${socket.id})`);
   });
 });
 

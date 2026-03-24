@@ -31,7 +31,7 @@
         </div>
         <h1>ApniBaat</h1>
       </div>
-      <p class="landing-subtitle">Private LAN chat — no accounts, no setup, no data stored</p>
+      <p class="landing-subtitle">Private room-based chat — enter a room code to connect with your team</p>
 
       <form id="join-form" autocomplete="off">
         <div class="input-group">
@@ -39,9 +39,14 @@
             autocomplete="off" aria-label="Display name" />
           <span class="input-char-count" id="name-char-count">0/24</span>
         </div>
+        <div class="input-group">
+          <input type="text" id="room-input" placeholder="Enter Room Code (e.g. 192.168.1.5)" maxlength="50" required
+            autocomplete="off" aria-label="Room code" />
+          <span class="input-char-count" id="room-char-count">0/50</span>
+        </div>
         <div id="name-error" class="error-text" role="alert"></div>
         <button type="submit" id="join-btn" class="btn-primary">
-          <span>Join Chat</span>
+          <span>Join Room</span>
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path d="M4 10h12m0 0l-4-4m4 4l-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"
               stroke-linejoin="round" />
@@ -62,7 +67,7 @@
             <path d="M7 1L1 4l6 3 6-3-6-3zM1 10l6 3 6-3M1 7l6 3 6-3" stroke="currentColor" stroke-width="1.2"
               stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-          <span>LAN only — data never leaves your network</span>
+          <span>Room-based — only people with the same code can chat</span>
         </div>
       </div>
 
@@ -95,7 +100,10 @@
         </div>
         <div class="header-title">
           <h1>ApniBaat</h1>
-          <span class="online-count" id="online-count">0 online</span>
+          <div class="header-info-row">
+            <span class="room-badge" id="room-badge" title="Current room"></span>
+            <span class="online-count" id="online-count">0 online</span>
+          </div>
         </div>
       </div>
       <div class="header-actions">
@@ -105,6 +113,11 @@
             <circle cx="4" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5" />
             <circle cx="14" cy="14.5" r="2.5" stroke="currentColor" stroke-width="1.5" />
             <path d="M6.3 7.8l5.4-3.1M6.3 10.2l5.4 3.1" stroke="currentColor" stroke-width="1.5" />
+          </svg>
+        </button>
+        <button class="icon-btn leave-btn" id="leave-btn" title="Leave room" aria-label="Leave room">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M7 2H4a2 2 0 00-2 2v10a2 2 0 002 2h3M11 13l4-4m0 0l-4-4m4 4H7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
         <button class="icon-btn hamburger-btn" id="sidebar-toggle" title="Online users" aria-label="Toggle user list">
